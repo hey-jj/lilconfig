@@ -6,5 +6,18 @@ description = "find and load a tool's config file by searching up the directory 
 license = "MIT"
 repository = "https://github.com/hey-jj/lilconfig"
 readme = "README.md"
+keywords = ["config", "cosmiconfig", "search", "json", "rc"]
+categories = ["config", "filesystem"]
 
 [dependencies]
+# JSON value model and parser. A config value mirrors a JSON document, so
+# serde_json::Value is the natural representation and the default loader.
+serde_json = "1"
+# Resolves the user's home directory, the default stop directory for search.
+dirs = "5"
+
+[dev-dependencies]
+# Builds throwaway directory trees for traversal and cwd-sensitive tests.
+tempfile = "3"
+# Minimal block_on to drive the async API in tests without a full runtime.
+pollster = "0.3"
