@@ -4,9 +4,10 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use lilconfig::{loader, Error, Fs, LilconfigResult, Loader};
+use lilconfig::{loader, Error, Fs, Loader, SearchResult};
 use serde_json::Value;
 
 /// Absolute path to the fixtures tree.
@@ -59,8 +60,52 @@ pub fn failing() -> Loader {
 }
 
 /// Shorthand for `Some(serde_json::Value)` config in a result assertion.
-pub fn config(result: &LilconfigResult) -> Option<&Value> {
+pub fn config(result: &Option<SearchResult>) -> Option<&Value> {
     result.as_ref().and_then(|r| r.config.as_ref())
+}
+
+/// Wraps another filesystem and counts `access` and `read` calls.
+///
+/// The counters are shared, so clones report the same totals. The cache tests
+/// use this to assert the cache avoids redundant filesystem work.
+#[derive(Clone)]
+pub struct CountingFs<F: Fs> {
+    inner: F,
+    access_count: Arc<AtomicUsize>,
+    read_count: Arc<AtomicUsize>,
+}
+
+impl<F: Fs> CountingFs<F> {
+    /// Wraps `inner` with fresh counters.
+    pub fn new(inner: F) -> Self {
+        Self {
+            inner,
+            access_count: Arc::new(AtomicUsize::new(0)),
+            read_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Returns how many times `access` has run.
+    pub fn access_count(&self) -> usize {
+        self.access_count.load(Ordering::SeqCst)
+    }
+
+    /// Returns how many times `read_to_string` has run.
+    pub fn read_count(&self) -> usize {
+        self.read_count.load(Ordering::SeqCst)
+    }
+}
+
+impl<F: Fs> Fs for CountingFs<F> {
+    fn access(&self, path: &Path) -> io::Result<()> {
+        self.access_count.fetch_add(1, Ordering::SeqCst);
+        self.inner.access(path)
+    }
+
+    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+        self.read_count.fetch_add(1, Ordering::SeqCst);
+        self.inner.read_to_string(path)
+    }
 }
 
 /// A filesystem where nothing exists and every access path is recorded.

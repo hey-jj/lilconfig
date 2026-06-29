@@ -1,15 +1,17 @@
 //! Builders that resolve options and construct a searcher.
 //!
-//! [`Lilconfig`] configures a synchronous searcher. [`AsyncLilconfig`] configures
-//! an asynchronous one. They share every option. Each `build` resolves defaults,
-//! validates that every search place has a loader, and returns the searcher.
+//! [`SearcherBuilder`] configures a synchronous [`Searcher`].
+//! [`AsyncSearcherBuilder`] configures an asynchronous [`AsyncSearcher`]. They
+//! share every option. Each `build` resolves defaults, validates that every
+//! search place has a loader, and returns the searcher.
 
+use std::fmt;
 use std::path::PathBuf;
 
-use crate::core::{Core, LilconfigResult, PackageProp, Resolved, Transform};
+use crate::core::{Core, PackageProp, Resolved, SearchResult, Transform};
 use crate::error::Error;
 use crate::fs::{Fs, RealFs};
-use crate::loaders::{default_loaders, default_loaders_sync, Loader, Loaders};
+use crate::loaders::{default_loaders, Loader, Loaders};
 use crate::{AsyncSearcher, Searcher};
 
 /// Builds the default search places for `name`.
@@ -55,7 +57,7 @@ impl Builder {
         }
     }
 
-    fn resolve(self, base_loaders: Loaders) -> (Resolved, PathBuf) {
+    fn resolve(self, sync: bool) -> (Resolved, PathBuf) {
         let cwd = self
             .cwd
             .or_else(|| std::env::current_dir().ok())
@@ -72,14 +74,14 @@ impl Builder {
 
         let transform: Transform = self
             .transform
-            .unwrap_or_else(|| std::sync::Arc::new(|r: LilconfigResult| Ok(r)));
+            .unwrap_or_else(|| std::sync::Arc::new(|r: Option<SearchResult>| Ok(r)));
 
         let package_prop = self
             .package_prop
             .unwrap_or_else(|| PackageProp::Single(self.name.clone()));
 
         // Default loaders stay present for keys the caller did not override.
-        let mut loaders = base_loaders;
+        let mut loaders = default_loaders();
         for (k, v) in self.user_loaders {
             loaders.insert(k, v);
         }
@@ -92,18 +94,19 @@ impl Builder {
             transform,
             package_prop,
             loaders,
+            sync,
         };
         (resolved, cwd)
     }
 }
 
 /// Configures and builds a synchronous [`Searcher`].
-pub struct Lilconfig {
+pub struct SearcherBuilder {
     inner: Builder,
 }
 
 /// Configures and builds an asynchronous [`AsyncSearcher`].
-pub struct AsyncLilconfig {
+pub struct AsyncSearcherBuilder {
     inner: Builder,
 }
 
@@ -163,7 +166,7 @@ macro_rules! shared_setters {
     };
 }
 
-impl Lilconfig {
+impl SearcherBuilder {
     /// Starts configuring a synchronous searcher for `name`.
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
@@ -179,7 +182,7 @@ impl Lilconfig {
     /// it receives `None`.
     pub fn transform<T>(mut self, transform: T) -> Self
     where
-        T: Fn(LilconfigResult) -> Result<LilconfigResult, Error> + Send + Sync + 'static,
+        T: Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error> + Send + Sync + 'static,
     {
         self.inner.transform = Some(std::sync::Arc::new(transform));
         self
@@ -194,13 +197,13 @@ impl Lilconfig {
 
     /// Builds the searcher on a supplied filesystem.
     pub fn build_with_fs<F: Fs>(self, fs: F) -> Result<Searcher<F>, Error> {
-        let (resolved, cwd) = self.inner.resolve(default_loaders_sync());
+        let (resolved, cwd) = self.inner.resolve(true);
         let core = Core::new(resolved, fs)?;
         Ok(Searcher::new(core, cwd))
     }
 }
 
-impl AsyncLilconfig {
+impl AsyncSearcherBuilder {
     /// Starts configuring an asynchronous searcher for `name`.
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
@@ -216,7 +219,7 @@ impl AsyncLilconfig {
     /// it receives `None`.
     pub fn transform<T>(mut self, transform: T) -> Self
     where
-        T: Fn(LilconfigResult) -> Result<LilconfigResult, Error> + Send + Sync + 'static,
+        T: Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error> + Send + Sync + 'static,
     {
         self.inner.transform = Some(std::sync::Arc::new(transform));
         self
@@ -231,8 +234,24 @@ impl AsyncLilconfig {
 
     /// Builds the searcher on a supplied filesystem.
     pub fn build_with_fs<F: Fs>(self, fs: F) -> Result<AsyncSearcher<F>, Error> {
-        let (resolved, cwd) = self.inner.resolve(default_loaders());
+        let (resolved, cwd) = self.inner.resolve(false);
         let core = Core::new(resolved, fs)?;
         Ok(AsyncSearcher::new(core, cwd))
+    }
+}
+
+impl fmt::Debug for SearcherBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearcherBuilder")
+            .field("name", &self.inner.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for AsyncSearcherBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsyncSearcherBuilder")
+            .field("name", &self.inner.name)
+            .finish_non_exhaustive()
     }
 }

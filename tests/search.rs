@@ -3,7 +3,7 @@
 mod common;
 
 use common::{block, fixed_value, search_path, search_root};
-use lilconfig::{AsyncLilconfig, Lilconfig};
+use lilconfig::{AsyncSearcherBuilder, SearcherBuilder};
 use serde_json::json;
 
 #[test]
@@ -11,7 +11,7 @@ fn finds_config_in_hidden_dot_config_dir() {
     // .config/{name}rc.json is a default search place. Searching from a/b/c
     // walks up to search/ and finds .config/hiddenrc.json.
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("hidden").build().unwrap();
+    let searcher = SearcherBuilder::new("hidden").build().unwrap();
     let result = searcher.search(&from).unwrap().unwrap();
     assert_eq!(result.config, Some(json!({"hidden": true})));
     assert_eq!(result.filepath, search_path(".config/hiddenrc.json"));
@@ -20,7 +20,7 @@ fn finds_config_in_hidden_dot_config_dir() {
 #[test]
 fn returns_none_when_stop_dir_reached_without_match() {
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("non-existent")
+    let searcher = SearcherBuilder::new("non-existent")
         .stop_dir(search_root())
         .build()
         .unwrap();
@@ -30,7 +30,7 @@ fn returns_none_when_stop_dir_reached_without_match() {
 #[test]
 fn returns_none_for_provided_search_from() {
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("non-existent")
+    let searcher = SearcherBuilder::new("non-existent")
         .stop_dir(search_root())
         .build()
         .unwrap();
@@ -42,7 +42,7 @@ fn skips_empty_config_and_keeps_walking_by_default() {
     // a/b/maybeEmpty.config.json is empty. The default skips it and finds the
     // non-empty config one level up.
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("maybeEmpty")
+    let searcher = SearcherBuilder::new("maybeEmpty")
         .stop_dir(search_root())
         .search_places(["maybeEmpty.config.json"])
         .build()
@@ -55,7 +55,7 @@ fn skips_empty_config_and_keeps_walking_by_default() {
 #[test]
 fn stops_at_empty_config_when_ignore_is_off() {
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("maybeEmpty")
+    let searcher = SearcherBuilder::new("maybeEmpty")
         .stop_dir(search_root())
         .ignore_empty_search_places(false)
         .search_places(["maybeEmpty.config.json"])
@@ -70,7 +70,7 @@ fn stops_at_empty_config_when_ignore_is_off() {
 #[test]
 fn custom_search_places_finds_first_present() {
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("doesnt-matter")
+    let searcher = SearcherBuilder::new("doesnt-matter")
         .stop_dir(search_root())
         .search_places(["searchPlaces.conf.json", "searchPlaces-noExt"])
         .loader("noExt", fixed_value(json!(null)))
@@ -86,7 +86,7 @@ fn first_matching_search_place_in_a_dir_wins() {
     // The a/ dir holds both package.json and maybeEmpty.config.json. With
     // package.json first in the order, its prop wins.
     let from = search_path("a");
-    let searcher = Lilconfig::new("either")
+    let searcher = SearcherBuilder::new("either")
         .stop_dir(search_root())
         .search_places(["package.json", "maybeEmpty.config.json"])
         .package_prop(lilconfig::PackageProp::Single("foo".to_string()))
@@ -101,7 +101,7 @@ fn first_matching_search_place_in_a_dir_wins() {
 fn later_search_place_wins_when_earlier_absent() {
     // The b/ dir has no matching package.json prop, so the second place is used.
     let from = search_path("a/b");
-    let searcher = Lilconfig::new("either")
+    let searcher = SearcherBuilder::new("either")
         .stop_dir(search_root())
         .search_places(["package.json", "searchPlaces.conf.json"])
         .package_prop(lilconfig::PackageProp::Single("foo".to_string()))
@@ -115,7 +115,7 @@ fn later_search_place_wins_when_earlier_absent() {
 
 #[test]
 fn stop_dir_equal_to_search_from_searches_one_dir() {
-    let searcher = Lilconfig::new("non-existent")
+    let searcher = SearcherBuilder::new("non-existent")
         .stop_dir(search_root())
         .build()
         .unwrap();
@@ -127,7 +127,7 @@ fn custom_js_loader_resolves_dot_config_target() {
     // A registered .js loader makes the {name}.config.js default place usable
     // without executing JavaScript.
     let from = search_path("a/b/c");
-    let searcher = Lilconfig::new("test-app")
+    let searcher = SearcherBuilder::new("test-app")
         .stop_dir(search_root())
         .search_places(["test-app.config.json"])
         .build()
@@ -140,14 +140,14 @@ fn custom_js_loader_resolves_dot_config_target() {
 #[test]
 fn async_search_matches_sync() {
     let from = search_path("a/b/c");
-    let searcher = AsyncLilconfig::new("hidden").build().unwrap();
+    let searcher = AsyncSearcherBuilder::new("hidden").build().unwrap();
     let result = block(searcher.search(&from)).unwrap().unwrap();
     assert_eq!(result.config, Some(json!({"hidden": true})));
 }
 
 #[test]
 fn search_cwd_default_origin() {
-    let searcher = Lilconfig::new("hidden")
+    let searcher = SearcherBuilder::new("hidden")
         .cwd(search_path("a/b/c"))
         .build()
         .unwrap();

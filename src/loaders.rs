@@ -43,23 +43,15 @@ where
     Arc::new(f)
 }
 
-/// The default async loader table.
+/// The default loader table.
 ///
-/// JavaScript lilconfig executes `.js`, `.cjs`, and `.mjs` configs. Rust cannot
-/// run JavaScript, so this table ships JSON only: `.json` and `noExt` both parse
-/// JSON. Register your own loaders for other extensions.
+/// Both searcher surfaces share this table. It ships JSON only: `.json` and
+/// `noExt` both parse JSON. A loader is a plain function, so there is no sync or
+/// async variant to split. Register your own loaders for other extensions.
 pub fn default_loaders() -> Loaders {
     let mut m = Loaders::new();
     let json = loader(json_loader);
     m.insert(".json".to_string(), json.clone());
     m.insert("noExt".to_string(), json);
     m
-}
-
-/// The default sync loader table.
-///
-/// Identical to [`default_loaders`]. The split exists to mirror the two API
-/// surfaces and to leave room for sync-only or async-only loaders.
-pub fn default_loaders_sync() -> Loaders {
-    default_loaders()
 }

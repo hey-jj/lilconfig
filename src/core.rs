@@ -28,14 +28,12 @@ pub struct SearchResult {
     pub is_empty: bool,
 }
 
-/// The outcome of a search or load: a result, or nothing found.
-pub type LilconfigResult = Option<SearchResult>;
-
 /// Transforms a result before it is returned and cached.
 ///
 /// Runs on every outcome, including the not-found case where it receives
 /// `None`. The default is the identity transform.
-pub type Transform = Arc<dyn Fn(LilconfigResult) -> Result<LilconfigResult, Error> + Send + Sync>;
+pub type Transform =
+    Arc<dyn Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error> + Send + Sync>;
 
 /// Where to look for a config key inside `package.json`.
 #[derive(Debug, Clone)]
@@ -62,14 +60,19 @@ pub struct Resolved {
     pub package_prop: PackageProp,
     /// Loaders keyed by extension or `noExt`.
     pub loaders: Loaders,
+    /// True for the synchronous surface. The synchronous `load` returns a
+    /// `package.json` result without writing it to the load cache, so a second
+    /// `load` of the same `package.json` reads the file again. Every other path
+    /// caches the same on both surfaces.
+    pub sync: bool,
 }
 
 /// The engine: resolved options, a filesystem, and the two caches.
 pub struct Core<F: Fs> {
     opts: Resolved,
     fs: F,
-    search_cache: Mutex<HashMap<PathBuf, LilconfigResult>>,
-    load_cache: Mutex<HashMap<PathBuf, LilconfigResult>>,
+    search_cache: Mutex<HashMap<PathBuf, Option<SearchResult>>>,
+    load_cache: Mutex<HashMap<PathBuf, Option<SearchResult>>>,
 }
 
 impl<F: Fs> Core<F> {
@@ -93,11 +96,6 @@ impl<F: Fs> Core<F> {
             search_cache: Mutex::new(HashMap::new()),
             load_cache: Mutex::new(HashMap::new()),
         })
-    }
-
-    /// Exposes the filesystem, mainly for call-count assertions in tests.
-    pub fn fs(&self) -> &F {
-        &self.fs
     }
 
     /// Empties the load cache. A no-op when caching is off.
@@ -127,7 +125,7 @@ impl<F: Fs> Core<F> {
     /// Tries every search place in each directory before moving to the parent.
     /// Stops at `stop_dir` or the filesystem root. Returns the transformed
     /// result, which is `None` when nothing matched.
-    pub fn search(&self, search_from: &Path) -> Result<LilconfigResult, Error> {
+    pub fn search(&self, search_from: &Path) -> Result<Option<SearchResult>, Error> {
         let mut config: Option<Value> = None;
         let mut filepath: Option<PathBuf> = None;
         let mut is_empty = false;
@@ -161,8 +159,7 @@ impl<F: Fs> Core<F> {
 
                 if place == "package.json" {
                     let loader = self.loader_for(&key)?;
-                    let pkg =
-                        loader(&candidate, &content).map_err(|e| loader_err(&candidate, e))?;
+                    let pkg = loader(&candidate, &content)?;
                     let found = get_package_prop(&self.opts.package_prop, &pkg)?;
                     // Match on anything except null. Falsy-but-defined values
                     // from the fast path (0, false, "") still count as a match.
@@ -184,8 +181,7 @@ impl<F: Fs> Core<F> {
                     config = None;
                 } else {
                     let loader = self.loader_for(&key)?;
-                    config =
-                        Some(loader(&candidate, &content).map_err(|e| loader_err(&candidate, e))?);
+                    config = Some(loader(&candidate, &content)?);
                 }
                 filepath = Some(candidate);
                 break 'dir_loop;
@@ -198,7 +194,7 @@ impl<F: Fs> Core<F> {
             dir = parent;
         }
 
-        let result: LilconfigResult = filepath.map(|path| SearchResult {
+        let result: Option<SearchResult> = filepath.map(|path| SearchResult {
             config,
             filepath: path,
             is_empty,
@@ -220,11 +216,11 @@ impl<F: Fs> Core<F> {
     /// Empty files yield `config: None` with `is_empty` set. A `package.json`
     /// extracts the configured prop. Errors propagate from the loader and the
     /// filesystem.
-    pub fn load(&self, cwd: &Path, filepath: &str) -> Result<LilconfigResult, Error> {
-        if filepath.is_empty() {
+    pub fn load(&self, cwd: &Path, filepath: &Path) -> Result<Option<SearchResult>, Error> {
+        if filepath.as_os_str().is_empty() {
             return Err(Error::EmptyFilePath);
         }
-        let abs = resolve(cwd, Path::new(filepath));
+        let abs = resolve(cwd, filepath);
 
         if self.opts.cache {
             if let Some(cached) = self.load_cache.lock().unwrap().get(&abs).cloned() {
@@ -241,7 +237,7 @@ impl<F: Fs> Core<F> {
         let content = read_text(&self.fs, &abs)?;
 
         if base == "package.json" {
-            let pkg = loader(&abs, &content).map_err(|e| loader_err(&abs, e))?;
+            let pkg = loader(&abs, &content)?;
             // load keeps the extracted value as-is, including a null config.
             let config = get_package_prop(&self.opts.package_prop, &pkg)?;
             let result = Some(SearchResult {
@@ -250,6 +246,11 @@ impl<F: Fs> Core<F> {
                 is_empty: false,
             });
             let transformed = (self.opts.transform)(result)?;
+            // The synchronous surface does not cache the package.json result, so
+            // a repeat load re-reads the file. The asynchronous surface caches.
+            if self.opts.sync {
+                return Ok(transformed);
+            }
             return Ok(self.emplace(abs, transformed));
         }
 
@@ -270,7 +271,7 @@ impl<F: Fs> Core<F> {
                 is_empty: true,
             }
         } else {
-            let config = loader(&abs, &content).map_err(|e| loader_err(&abs, e))?;
+            let config = loader(&abs, &content)?;
             SearchResult {
                 config: Some(config),
                 filepath: abs.clone(),
@@ -281,7 +282,7 @@ impl<F: Fs> Core<F> {
         Ok(self.emplace(abs, transformed))
     }
 
-    fn emplace(&self, key: PathBuf, value: LilconfigResult) -> LilconfigResult {
+    fn emplace(&self, key: PathBuf, value: Option<SearchResult>) -> Option<SearchResult> {
         if self.opts.cache {
             self.load_cache.lock().unwrap().insert(key, value.clone());
         }
@@ -295,17 +296,6 @@ impl<F: Fs> Core<F> {
             .ok_or_else(|| Error::NoLoaderForExtension {
                 key: key.to_string(),
             })
-    }
-}
-
-fn loader_err(path: &Path, e: Error) -> Error {
-    // Loaders return Error::Loader already; pass other kinds through unchanged.
-    match e {
-        Error::Loader { .. } | Error::NullInPropPath { .. } => e,
-        other => Error::Loader {
-            path: path.to_path_buf(),
-            message: other.to_string(),
-        },
     }
 }
 

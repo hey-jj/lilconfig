@@ -5,7 +5,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::RecordingFs;
-use lilconfig::{default_loaders, default_loaders_sync, Lilconfig};
+use lilconfig::{default_loaders, SearcherBuilder};
 
 #[test]
 fn default_order_for_one_directory() {
@@ -14,7 +14,7 @@ fn default_order_for_one_directory() {
     // crate can run: JSON and the extensionless noExt.
     let dir = PathBuf::from("/proj");
     let fs = RecordingFs::default();
-    let searcher = Lilconfig::new("myapp")
+    let searcher = SearcherBuilder::new("myapp")
         .stop_dir(&dir)
         .build_with_fs(fs.clone())
         .unwrap();
@@ -35,13 +35,12 @@ fn default_order_for_one_directory() {
 }
 
 #[test]
-fn default_loader_tables_expose_json_and_no_ext() {
-    for table in [default_loaders(), default_loaders_sync()] {
-        assert!(table.contains_key(".json"));
-        assert!(table.contains_key("noExt"));
-        // No JavaScript execution loaders ship by default.
-        assert!(!table.contains_key(".js"));
-        assert!(!table.contains_key(".cjs"));
-        assert!(!table.contains_key(".mjs"));
-    }
+fn default_loader_table_exposes_json_and_no_ext() {
+    let table = default_loaders();
+    assert!(table.contains_key(".json"));
+    assert!(table.contains_key("noExt"));
+    // No JavaScript execution loaders ship by default.
+    assert!(!table.contains_key(".js"));
+    assert!(!table.contains_key(".cjs"));
+    assert!(!table.contains_key(".mjs"));
 }

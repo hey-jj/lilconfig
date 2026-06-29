@@ -18,9 +18,9 @@ lilconfig = "0.1"
 Search upward from the current directory:
 
 ```rust
-use lilconfig::Lilconfig;
+use lilconfig::SearcherBuilder;
 
-let searcher = Lilconfig::new("myapp").build()?;
+let searcher = SearcherBuilder::new("myapp").build()?;
 if let Some(found) = searcher.search_cwd()? {
     println!("config at {}: {:?}", found.filepath.display(), found.config);
 }
@@ -29,14 +29,14 @@ if let Some(found) = searcher.search_cwd()? {
 Load one file by path:
 
 ```rust
-use lilconfig::Lilconfig;
+use lilconfig::SearcherBuilder;
 
-let searcher = Lilconfig::new("myapp").build()?;
+let searcher = SearcherBuilder::new("myapp").build()?;
 let result = searcher.load("myapp.config.json")?;
 ```
 
-An async surface mirrors the sync one. Build it with `AsyncLilconfig::new` and
-await `search` and `load`.
+An async surface mirrors the sync one. Build it with `AsyncSearcherBuilder::new`
+and await `search` and `load`.
 
 ## Default search places
 
@@ -58,10 +58,10 @@ A loader turns file text into a `serde_json::Value`. The defaults parse JSON for
 `.json` files and for extensionless files. Register more with `loader`:
 
 ```rust
-use lilconfig::{loader, Lilconfig};
+use lilconfig::{loader, SearcherBuilder};
 use serde_json::Value;
 
-let searcher = Lilconfig::new("myapp")
+let searcher = SearcherBuilder::new("myapp")
     .loader(".toml", loader(|_path, text| {
         // parse `text` into a Value
         Ok(Value::Null)

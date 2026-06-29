@@ -4,17 +4,17 @@
 //! tool name and it derives a set of conventional filenames, walks up from a
 //! starting directory, and returns the first file that exists and parses.
 //!
-//! Two entry points mirror the two I/O styles. [`Lilconfig::new`] builds a
-//! synchronous searcher. [`AsyncLilconfig::new`] builds an asynchronous one with
-//! the same behavior. Both return a searcher with `search`, `load`, and three
-//! cache-clearing methods.
+//! Two entry points mirror the two I/O styles. [`SearcherBuilder::new`] builds a
+//! synchronous [`Searcher`]. [`AsyncSearcherBuilder::new`] builds an
+//! asynchronous [`AsyncSearcher`] with the same behavior. Both searchers expose
+//! `search`, `load`, and three cache-clearing methods.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use lilconfig::Lilconfig;
+//! use lilconfig::SearcherBuilder;
 //!
-//! let searcher = Lilconfig::new("myapp").build()?;
+//! let searcher = SearcherBuilder::new("myapp").build()?;
 //! if let Some(found) = searcher.search_cwd()? {
 //!     println!("config at {}: {:?}", found.filepath.display(), found.config);
 //! }
@@ -33,8 +33,8 @@
 //!
 //! A [`SearchResult`] carries `config: Option<Value>`. `None` means the matched
 //! file was empty, which mirrors a JavaScript `undefined`. `Some(Value::Null)`
-//! is an explicit null config. The whole [`LilconfigResult`] is `None` when the
-//! search found nothing.
+//! is an explicit null config. The whole `Option<SearchResult>` is `None` when
+//! the search found nothing.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -45,14 +45,13 @@ mod fs;
 mod loaders;
 mod options;
 
-pub use crate::core::{LilconfigResult, PackageProp, SearchResult, Transform};
+pub use crate::core::{PackageProp, SearchResult, Transform};
 pub use crate::error::Error;
-pub use crate::fs::{CountingFs, Fs, RealFs};
-pub use crate::loaders::{
-    default_loaders, default_loaders_sync, json_loader, loader, Loader, LoaderFn, Loaders,
-};
-pub use crate::options::{AsyncLilconfig, Lilconfig};
+pub use crate::fs::{Fs, RealFs};
+pub use crate::loaders::{default_loaders, json_loader, loader, Loader, LoaderFn, Loaders};
+pub use crate::options::{AsyncSearcherBuilder, SearcherBuilder};
 
+use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -60,8 +59,8 @@ use crate::core::Core;
 
 /// A synchronous searcher.
 ///
-/// Build one with [`Lilconfig::build`]. The methods read and parse files on the
-/// calling thread.
+/// Build one with [`SearcherBuilder::build`]. The methods read and parse files
+/// on the calling thread.
 pub struct Searcher<F: Fs = RealFs> {
     core: Arc<Core<F>>,
     cwd: std::path::PathBuf,
@@ -76,17 +75,17 @@ impl<F: Fs> Searcher<F> {
     }
 
     /// Walks up from `search_from`, returning the first qualifying config.
-    pub fn search(&self, search_from: impl AsRef<Path>) -> Result<LilconfigResult, Error> {
+    pub fn search(&self, search_from: impl AsRef<Path>) -> Result<Option<SearchResult>, Error> {
         self.core.search(search_from.as_ref())
     }
 
     /// Searches from the working directory the searcher was built with.
-    pub fn search_cwd(&self) -> Result<LilconfigResult, Error> {
+    pub fn search_cwd(&self) -> Result<Option<SearchResult>, Error> {
         self.core.search(&self.cwd)
     }
 
     /// Loads one config file by path, resolved against the working directory.
-    pub fn load(&self, filepath: impl AsRef<str>) -> Result<LilconfigResult, Error> {
+    pub fn load(&self, filepath: impl AsRef<Path>) -> Result<Option<SearchResult>, Error> {
         self.core.load(&self.cwd, filepath.as_ref())
     }
 
@@ -104,18 +103,19 @@ impl<F: Fs> Searcher<F> {
     pub fn clear_caches(&self) {
         self.core.clear_caches();
     }
+}
 
-    /// Borrows the filesystem, useful for inspecting call counts in tests.
-    pub fn fs(&self) -> &F {
-        self.core.fs()
+impl<F: Fs> fmt::Debug for Searcher<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Searcher").field("cwd", &self.cwd).finish()
     }
 }
 
 /// An asynchronous searcher.
 ///
-/// Build one with [`AsyncLilconfig::build`]. The methods are `async` and return
-/// the same results as the synchronous searcher. The underlying filesystem
-/// access is blocking, so the futures resolve without yielding.
+/// Build one with [`AsyncSearcherBuilder::build`]. The methods are `async` and
+/// return the same results as the synchronous searcher. The underlying
+/// filesystem access is blocking, so the futures resolve without yielding.
 pub struct AsyncSearcher<F: Fs = RealFs> {
     core: Arc<Core<F>>,
     cwd: std::path::PathBuf,
@@ -130,17 +130,20 @@ impl<F: Fs> AsyncSearcher<F> {
     }
 
     /// Walks up from `search_from`, returning the first qualifying config.
-    pub async fn search(&self, search_from: impl AsRef<Path>) -> Result<LilconfigResult, Error> {
+    pub async fn search(
+        &self,
+        search_from: impl AsRef<Path>,
+    ) -> Result<Option<SearchResult>, Error> {
         self.core.search(search_from.as_ref())
     }
 
     /// Searches from the working directory the searcher was built with.
-    pub async fn search_cwd(&self) -> Result<LilconfigResult, Error> {
+    pub async fn search_cwd(&self) -> Result<Option<SearchResult>, Error> {
         self.core.search(&self.cwd)
     }
 
     /// Loads one config file by path, resolved against the working directory.
-    pub async fn load(&self, filepath: impl AsRef<str>) -> Result<LilconfigResult, Error> {
+    pub async fn load(&self, filepath: impl AsRef<Path>) -> Result<Option<SearchResult>, Error> {
         self.core.load(&self.cwd, filepath.as_ref())
     }
 
@@ -158,9 +161,12 @@ impl<F: Fs> AsyncSearcher<F> {
     pub fn clear_caches(&self) {
         self.core.clear_caches();
     }
+}
 
-    /// Borrows the filesystem, useful for inspecting call counts in tests.
-    pub fn fs(&self) -> &F {
-        self.core.fs()
+impl<F: Fs> fmt::Debug for AsyncSearcher<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsyncSearcher")
+            .field("cwd", &self.cwd)
+            .finish()
     }
 }
