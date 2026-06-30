@@ -2,7 +2,9 @@
 
 mod common;
 
-use common::{block, fixed_value, search_path, search_root};
+use std::path::PathBuf;
+
+use common::{block, fixed_value, search_path, search_root, RecordingFs};
 use lilconfig::{AsyncSearcherBuilder, SearcherBuilder};
 use serde_json::json;
 
@@ -153,4 +155,23 @@ fn search_cwd_default_origin() {
         .unwrap();
     let result = searcher.search_cwd().unwrap().unwrap();
     assert_eq!(result.config, Some(json!({"hidden": true})));
+}
+
+#[test]
+fn relative_search_from_resolves_against_cwd() {
+    // A relative search origin resolves against the builder cwd, so the walk
+    // starts at cwd/sub/dir and climbs back through cwd rather than jumping to
+    // the filesystem root.
+    let cwd = PathBuf::from("/proj");
+    let fs = RecordingFs::default();
+    let searcher = SearcherBuilder::new("app")
+        .cwd(&cwd)
+        .stop_dir(&cwd)
+        .search_places(["package.json"])
+        .build_with_fs(fs.clone())
+        .unwrap();
+    assert_eq!(searcher.search("sub/dir").unwrap(), None);
+    let accesses = fs.accesses();
+    assert!(accesses.contains(&cwd.join("sub/dir/package.json")));
+    assert!(accesses.contains(&cwd.join("package.json")));
 }

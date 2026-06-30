@@ -75,8 +75,12 @@ impl<F: Fs> Searcher<F> {
     }
 
     /// Walks up from `search_from`, returning the first qualifying config.
+    ///
+    /// A relative `search_from` is resolved against the working directory, the
+    /// same way `load` resolves its path.
     pub fn search(&self, search_from: impl AsRef<Path>) -> Result<Option<SearchResult>, Error> {
-        self.core.search(search_from.as_ref())
+        let from = crate::core::resolve(&self.cwd, search_from.as_ref());
+        self.core.search(&from)
     }
 
     /// Searches from the working directory the searcher was built with.
@@ -130,11 +134,15 @@ impl<F: Fs> AsyncSearcher<F> {
     }
 
     /// Walks up from `search_from`, returning the first qualifying config.
+    ///
+    /// A relative `search_from` is resolved against the working directory, the
+    /// same way `load` resolves its path.
     pub async fn search(
         &self,
         search_from: impl AsRef<Path>,
     ) -> Result<Option<SearchResult>, Error> {
-        self.core.search(search_from.as_ref())
+        let from = crate::core::resolve(&self.cwd, search_from.as_ref());
+        self.core.search(&from)
     }
 
     /// Searches from the working directory the searcher was built with.
