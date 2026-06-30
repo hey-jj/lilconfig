@@ -23,6 +23,7 @@ fn default_order_for_one_directory() {
 
     let expected: Vec<PathBuf> = [
         "package.json",
+        ".myapprc",
         ".myapprc.json",
         ".config/myapprc",
         ".config/myapprc.json",

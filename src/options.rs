@@ -16,13 +16,15 @@ use crate::{AsyncSearcher, Searcher};
 
 /// Builds the default search places for `name`.
 ///
-/// The skeleton matches the conventional cosmiconfig layout: `package.json`,
-/// dot-rc files, files under `.config/`, and a `name.config.*` file. Only
-/// extensions with a default loader appear, so this lists `.json`, the
-/// extensionless `.config/{name}rc`, but not `.js`, `.cjs`, or `.mjs`.
+/// The layout is `package.json`, dot-rc files, and files under `.config/`. Only
+/// filenames whose extension has a default loader appear. The extensionless
+/// `.{name}rc` and `.config/{name}rc` use the `noExt` loader and the `.json`
+/// variants use the `.json` loader. The `.js`, `.cjs`, and `.mjs` variants have
+/// no default loader and are omitted.
 fn default_search_places(name: &str) -> Vec<String> {
     vec![
         "package.json".to_string(),
+        format!(".{name}rc"),
         format!(".{name}rc.json"),
         format!(".config/{name}rc"),
         format!(".config/{name}rc.json"),

@@ -44,6 +44,7 @@ For a tool named `myapp`, search tries these names in each directory, in order:
 
 ```
 package.json
+.myapprc
 .myapprc.json
 .config/myapprc
 .config/myapprc.json
