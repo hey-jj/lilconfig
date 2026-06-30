@@ -165,6 +165,21 @@ macro_rules! shared_setters {
             self.inner.user_loaders.insert(key.into(), loader);
             self
         }
+
+        /// Sets the result transform.
+        ///
+        /// The transform runs on every outcome, including the not-found case
+        /// where it receives `None`.
+        pub fn transform<T>(mut self, transform: T) -> Self
+        where
+            T: Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error>
+                + Send
+                + Sync
+                + 'static,
+        {
+            self.inner.transform = Some(std::sync::Arc::new(transform));
+            self
+        }
     };
 }
 
@@ -177,18 +192,6 @@ impl SearcherBuilder {
     }
 
     shared_setters!();
-
-    /// Sets the result transform.
-    ///
-    /// The transform runs on every outcome, including the not-found case where
-    /// it receives `None`.
-    pub fn transform<T>(mut self, transform: T) -> Self
-    where
-        T: Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error> + Send + Sync + 'static,
-    {
-        self.inner.transform = Some(std::sync::Arc::new(transform));
-        self
-    }
 
     /// Builds the searcher on the real filesystem.
     ///
@@ -214,18 +217,6 @@ impl AsyncSearcherBuilder {
     }
 
     shared_setters!();
-
-    /// Sets the result transform.
-    ///
-    /// The transform runs on every outcome, including the not-found case where
-    /// it receives `None`.
-    pub fn transform<T>(mut self, transform: T) -> Self
-    where
-        T: Fn(Option<SearchResult>) -> Result<Option<SearchResult>, Error> + Send + Sync + 'static,
-    {
-        self.inner.transform = Some(std::sync::Arc::new(transform));
-        self
-    }
 
     /// Builds the searcher on the real filesystem.
     ///

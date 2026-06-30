@@ -326,20 +326,14 @@ fn extname(name: &str) -> Option<String> {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let bytes = base.as_bytes();
     let mut last_dot: Option<usize> = None;
-    let mut started_with_dot = false;
     for (i, &b) in bytes.iter().enumerate() {
         if b == b'.' {
-            if i == 0 {
-                started_with_dot = true;
-            }
             last_dot = Some(i);
         }
     }
     match last_dot {
         // No dot, or the only dot is the leading one: no extension.
-        None => None,
-        Some(0) => None,
-        Some(idx) if started_with_dot && idx == 0 => None,
+        None | Some(0) => None,
         Some(idx) => Some(base[idx..].to_string()),
     }
 }
