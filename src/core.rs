@@ -369,7 +369,7 @@ fn normalize(path: &Path) -> PathBuf {
     for comp in path.components() {
         match comp {
             Component::ParentDir => {
-                if !out.pop() {
+                if !out.pop() && !out.has_root() {
                     out.push("..");
                 }
             }

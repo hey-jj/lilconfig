@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::core::{Core, PackageProp, Resolved, SearchResult, Transform};
+use crate::core::{resolve, Core, PackageProp, Resolved, SearchResult, Transform};
 use crate::error::Error;
 use crate::fs::{Fs, RealFs};
 use crate::loaders::{default_loaders, Loader, Loaders};
@@ -65,10 +65,11 @@ impl Builder {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let stop_dir = self
+        let raw_stop_dir = self
             .stop_dir
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
+        let stop_dir = resolve(&cwd, &raw_stop_dir);
 
         let search_places = self
             .search_places
